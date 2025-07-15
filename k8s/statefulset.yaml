@@ -19,9 +19,11 @@ spec:
         app: better-app
         environment: dev
     spec:
+      imagePullSecrets:
+      - name: ghcr-pull-secret
       containers:
       - name: better-app
-        image: ghcr.io/better-app/better-app:dev-latest
+        image: ghcr.io/apple/better-app:dev-latest
         ports:
         - containerPort: 5000
           name: http
