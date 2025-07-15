@@ -20,7 +20,7 @@ spec:
         runAsGroup: 1000
       containers:
       - name: better-app
-        image: ghcr.io/jaylikhare316/better_app:dev-e2584b08366c71e0599b1e171f5b817b098581f5
+        image: ghcr.io/jaylikhare316/better_app:dev-988c9e7392d60d39e7621dc058ef3d3e28126e20
         imagePullPolicy: Always
         ports:
         - containerPort: 5000
