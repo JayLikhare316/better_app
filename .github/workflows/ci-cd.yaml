@@ -1,148 +1,19 @@
-name: CI/CD Pipeline
+name: Simple CI/CD Pipeline
 
 on:
   push:
     branches: [master, develop]
   pull_request:
     branches: [master]
-  workflow_dispatch:  # Allows manual triggering
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
-  PYTHON_VERSION: '3.11'
 
 jobs:
-  # Lint and code quality checks
-  lint:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
-    
-    - name: Cache pip dependencies
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
-    
-    - name: Install linting dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install flake8 black isort bandit safety
-    
-    - name: Run Black formatter check
-      run: black --check --diff .
-    
-    - name: Run isort import sorting check
-      run: isort --check-only --diff .
-    
-    - name: Run Flake8 linting
-      run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-    
-    - name: Run Bandit security linting
-      run: bandit -r . -f json -o bandit-report.json || true
-    
-    - name: Check for known security vulnerabilities
-      run: safety check --json --output safety-report.json || true
-
-  # Unit and integration tests
-  test:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
-    
-    - name: Cache pip dependencies
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
-    
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest pytest-cov flask-testing coverage
-    
-    - name: Run tests with coverage
-      run: |
-        coverage run -m pytest tests/ -v --tb=short
-        coverage report --show-missing
-        coverage xml
-    
-    - name: Upload coverage results
-      uses: actions/upload-artifact@v4
-      with:
-        name: coverage-report
-        path: coverage.xml
-
-  # Security scanning
-  security-scan:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write
-      actions: read
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Run Trivy filesystem scan
-      uses: aquasecurity/trivy-action@master
-      continue-on-error: true
-      with:
-        scan-type: 'fs'
-        scan-ref: '.'
-        format: 'sarif'
-        output: 'trivy-fs-results.sarif'
-        severity: 'CRITICAL,HIGH,MEDIUM'
-        
-    - name: Check filesystem SARIF file
-      run: |
-        if [ -f "trivy-fs-results.sarif" ]; then
-          echo "Filesystem SARIF file created successfully"
-          ls -la trivy-fs-results.sarif
-        else
-          echo "Filesystem SARIF file not found, creating empty one"
-          echo '{"version": "2.1.0", "runs": []}' > trivy-fs-results.sarif
-        fi
-        
-    - name: Upload filesystem scan results
-      uses: github/codeql-action/upload-sarif@v3
-      if: always()
-      with:
-        sarif_file: 'trivy-fs-results.sarif'
-        category: 'filesystem-scan'
-        
-    - name: Run Trivy config scan
-      uses: aquasecurity/trivy-action@master
-      with:
-        scan-type: 'config'
-        scan-ref: '.'
-        format: 'table'
-        severity: 'HIGH,CRITICAL'
-
-  # Build and push Docker image for development
-  build-and-push:
-    needs: [lint, test, security-scan]
+  # Simple build, scan and deploy pipeline
+  build-scan-deploy:
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
     permissions:
@@ -151,9 +22,11 @@ jobs:
       security-events: write
     
     steps:
-    - name: Checkout
+    # Pull code
+    - name: Checkout code
       uses: actions/checkout@v4
     
+    # Build Docker image
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
     
@@ -164,119 +37,38 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
     
-    - name: Extract metadata
-      id: meta
-      uses: docker/metadata-action@v5
-      with:
-        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-        tags: |
-          type=ref,event=branch
-          type=sha,prefix=dev-
-          type=raw,value=dev-latest,enable={{is_default_branch}}
-        labels: |
-          org.opencontainers.image.title=Better App
-          org.opencontainers.image.description=Flask web application for managing names (Development)
-          org.opencontainers.image.vendor=Better App Team
-    
-    - name: Build and push Docker image
-      id: build
+    - name: Build Docker image
       uses: docker/build-push-action@v5
       with:
         context: .
         push: true
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
+        tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev-${{ github.sha }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
-        build-args: |
-          BUILDKIT_INLINE_CACHE=1
     
-    - name: Debug image information
-      run: |
-        echo "Image built: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev-${{ github.sha }}"
-        echo "Available tags from metadata:"
-        echo "${{ steps.meta.outputs.tags }}"
-        echo "Build digest: ${{ steps.build.outputs.digest }}"
-    
+    # Trivy security scan
     - name: Run Trivy container scan
       uses: aquasecurity/trivy-action@master
-      continue-on-error: true
-      with:
-        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev-${{ github.sha }}
-        format: 'sarif'
-        output: 'trivy-container-results.sarif'
-        severity: 'CRITICAL,HIGH,MEDIUM'
-        
-    - name: Check if SARIF file exists
-      run: |
-        if [ -f "trivy-container-results.sarif" ]; then
-          echo "SARIF file created successfully"
-          ls -la trivy-container-results.sarif
-        else
-          echo "SARIF file not found, creating empty one for upload"
-          echo '{"version": "2.1.0", "runs": []}' > trivy-container-results.sarif
-        fi
-        
-    - name: Upload container scan results
-      uses: github/codeql-action/upload-sarif@v3
-      if: always()
-      with:
-        sarif_file: 'trivy-container-results.sarif'
-        category: 'container-scan'
-        
-    - name: Fail on critical vulnerabilities
-      uses: aquasecurity/trivy-action@master
-      continue-on-error: false
       with:
         image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev-${{ github.sha }}
         format: 'table'
+        severity: 'HIGH,CRITICAL'
         exit-code: '1'
-        severity: 'CRITICAL'
-        format: 'table'
-        exit-code: '1'
-        severity: 'CRITICAL'
     
-    - name: Clean up local Docker images
-      if: always()
-      run: |
-        docker buildx prune -f
-        docker system df
-
-  # Deploy to development environment
-  deploy-dev:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push'
-    environment: development
-    
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-    
+    # Deploy to development
     - name: Update Kubernetes manifests
       run: |
-        # Update statefulset with new image tag
+        # Update StatefulSet
         sed -i "s|image: ghcr.io/.*/.*:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev-${{ github.sha }}|" k8s/statefulset.yaml
-        
-        # Show the updated statefulset
-        echo "Updated statefulset.yaml:"
-        cat k8s/statefulset.yaml | grep -A 2 -B 2 "image:"
+        # Update Deployment
+        sed -i "s|image: ghcr.io/.*/.*:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev-${{ github.sha }}|" k8s/deployment.yaml
+        echo "Updated image to: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev-${{ github.sha }}"
     
-    - name: Validate Kubernetes manifests
+    - name: Deploy to development
       run: |
-        # Install kubeval for validation
-        curl -L https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64.tar.gz | tar xz
-        sudo mv kubeval /usr/local/bin
-        kubeval k8s/*.yaml
-    
-    - name: Apply to development cluster (ArgoCD)
-      run: |
-        echo "Kubernetes manifests validated and ready for ArgoCD deployment"
-        echo "ArgoCD will automatically sync the changes to the development cluster"
-        
-        # If you want to commit the changes back to the repo for ArgoCD to pick up:
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-        git add k8s/statefulset.yaml
-        git commit -m "Update dev statefulset image: dev-${{ github.sha }}" || exit 0
+        git add k8s/statefulset.yaml k8s/deployment.yaml
+        git commit -m "Deploy: dev-${{ github.sha }}" || exit 0
         git push
+        echo "Deployment ready for ArgoCD sync"

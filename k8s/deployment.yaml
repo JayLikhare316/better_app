@@ -1,11 +1,15 @@
 apiVersion: apps/v1
-kind: StatefulSet
+kind: Deployment
 metadata:
-  name: better-app-statefulset
+  name: better-app-deployment
   namespace: better-app-dev
 spec:
-  serviceName: better-app-headless
   replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
   selector:
     matchLabels:
       app: better-app
@@ -23,11 +27,6 @@ spec:
         env:
         - name: FLASK_ENV
           value: "development"
-        - name: DB_PATH
-          value: "/data/names.db"
-        volumeMounts:
-        - name: data
-          mountPath: /data
         readinessProbe:
           httpGet:
             path: /health
@@ -37,11 +36,3 @@ spec:
           requests:
             memory: "128Mi"
             cpu: "100m"
-  volumeClaimTemplates:
-  - metadata:
-      name: data
-    spec:
-      accessModes: ["ReadWriteOnce"]
-      resources:
-        requests:
-          storage: 1Gi

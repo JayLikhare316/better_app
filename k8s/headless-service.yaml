@@ -1,18 +1,12 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: better-app-dev-headless
+  name: better-app-headless
   namespace: better-app-dev
-  labels:
-    app: better-app
-    environment: dev
 spec:
   clusterIP: None
   selector:
     app: better-app
-    environment: dev
   ports:
-  - name: http
-    port: 5000
+  - port: 5000
     targetPort: 5000
-    protocol: TCP

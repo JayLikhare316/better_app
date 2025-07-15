@@ -42,10 +42,18 @@ The application will be available at `http://localhost:5000`
 - Local SQLite database (`dev_names.db`)
 - Hot reloading for code changes
 
-## Kubernetes Deployment
+## Deployment
 
-The application is configured for deployment to a Kubernetes development environment:
+### Automated CI/CD Pipeline
+The application uses a simple 4-step pipeline:
+1. **Pull** - Checkout code from repository
+2. **Build** - Create Docker image and push to registry
+3. **Trivy Scan** - Security vulnerability scanning
+4. **Deploy** - Update Kubernetes manifests for ArgoCD
 
+Pipeline triggers on push to `master` or `develop` branches.
+
+### Manual Deployment
 ```bash
 # Apply the ArgoCD application
 kubectl apply -f argocd-app.yaml
