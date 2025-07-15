@@ -24,6 +24,7 @@ if FLASK_ENV == "development":
 else:
     DB_PATH = os.getenv("DB_PATH", "/data/names.db")
 
+
 # Security: Input validation
 def validate_name(name):
     """Validate name input - only allow alphanumeric, spaces, hyphens, apostrophes"""
