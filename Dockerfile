@@ -5,9 +5,9 @@ FROM python:3.11-slim-bookworm
 WORKDIR /app
 
 # Install system dependencies including curl for health checks
-# Pin specific versions and minimize installed packages
+# Minimize installed packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl=7.88.1-10+deb12u5 \
+    curl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
