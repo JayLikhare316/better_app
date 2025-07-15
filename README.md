@@ -1,4 +1,4 @@
-# Better App
+# Better App - A Simple Flask CRUD Application (Force Sync)
 
 A simple Flask web application for managing a list of names.
 
