@@ -22,7 +22,7 @@ spec:
         - containerPort: 5000
         env:
         - name: FLASK_ENV
-          value: "development"
+          value: "production"
         - name: DB_PATH
           value: "/data/names.db"
         volumeMounts:
