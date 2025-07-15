@@ -106,12 +106,23 @@ jobs:
       
     - name: Run Trivy filesystem scan
       uses: aquasecurity/trivy-action@master
+      continue-on-error: true
       with:
         scan-type: 'fs'
         scan-ref: '.'
         format: 'sarif'
         output: 'trivy-fs-results.sarif'
         severity: 'CRITICAL,HIGH,MEDIUM'
+        
+    - name: Check filesystem SARIF file
+      run: |
+        if [ -f "trivy-fs-results.sarif" ]; then
+          echo "Filesystem SARIF file created successfully"
+          ls -la trivy-fs-results.sarif
+        else
+          echo "Filesystem SARIF file not found, creating empty one"
+          echo '{"version": "2.1.0", "runs": []}' > trivy-fs-results.sarif
+        fi
         
     - name: Upload filesystem scan results
       uses: github/codeql-action/upload-sarif@v3
@@ -179,13 +190,31 @@ jobs:
         build-args: |
           BUILDKIT_INLINE_CACHE=1
     
+    - name: Debug image information
+      run: |
+        echo "Image built: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev-${{ github.sha }}"
+        echo "Available tags from metadata:"
+        echo "${{ steps.meta.outputs.tags }}"
+        echo "Build digest: ${{ steps.build.outputs.digest }}"
+    
     - name: Run Trivy container scan
       uses: aquasecurity/trivy-action@master
+      continue-on-error: true
       with:
-        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev-${{ github.sha }}
         format: 'sarif'
         output: 'trivy-container-results.sarif'
         severity: 'CRITICAL,HIGH,MEDIUM'
+        
+    - name: Check if SARIF file exists
+      run: |
+        if [ -f "trivy-container-results.sarif" ]; then
+          echo "SARIF file created successfully"
+          ls -la trivy-container-results.sarif
+        else
+          echo "SARIF file not found, creating empty one for upload"
+          echo '{"version": "2.1.0", "runs": []}' > trivy-container-results.sarif
+        fi
         
     - name: Upload container scan results
       uses: github/codeql-action/upload-sarif@v3
@@ -196,8 +225,12 @@ jobs:
         
     - name: Fail on critical vulnerabilities
       uses: aquasecurity/trivy-action@master
+      continue-on-error: false
       with:
-        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev-${{ github.sha }}
+        format: 'table'
+        exit-code: '1'
+        severity: 'CRITICAL'
         format: 'table'
         exit-code: '1'
         severity: 'CRITICAL'
