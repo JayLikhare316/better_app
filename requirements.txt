@@ -1,5 +1,4 @@
 Flask==3.1.1
-Werkzeug==3.0.3
 pytest==7.4.4
 pytest-cov==4.1.0
 coverage==7.3.2
