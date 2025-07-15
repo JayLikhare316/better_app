@@ -58,20 +58,40 @@ def get_db():
 
 
 def init_db():
-    """Initialize database with names table"""
+    """Initialize database with robust checks for path and permissions"""
     db_dir = os.path.dirname(DB_PATH)
-    if db_dir:  # Only create directory if DB_PATH has a directory component
-        os.makedirs(db_dir, exist_ok=True)
-    with get_db() as conn:
-        conn.execute(
+
+    # Ensure the parent directory for the database file exists.
+    if db_dir:
+        try:
+            os.makedirs(db_dir, exist_ok=True)
+            logger.info(f"Database directory '{db_dir}' exists or was created.")
+        except OSError as e:
+            logger.error(f"Fatal: Could not create database directory at '{db_dir}': {e}")
+            raise
+
+    # Check for write permissions before attempting to connect.
+    check_dir = db_dir if db_dir else "."
+    if not os.access(check_dir, os.W_OK):
+        logger.error(f"Fatal: No write permissions for directory '{check_dir}'")
+        raise PermissionError(f"No write permissions for {check_dir}")
+
+    # Proceed with database connection and table creation.
+    try:
+        with get_db() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS names (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL
+                )
             """
-            CREATE TABLE IF NOT EXISTS names (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL
             )
-        """
-        )
-        conn.commit()
+            conn.commit()
+            logger.info("Database initialized successfully.")
+    except sqlite3.Error as e:
+        logger.error(f"Fatal: Failed to initialize database at '{DB_PATH}': {e}")
+        raise
 
 
 def get_all_names():
