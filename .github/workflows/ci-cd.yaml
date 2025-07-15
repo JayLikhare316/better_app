@@ -16,21 +16,37 @@ permissions:
   packages: write
   
 jobs:
-  # Simple build, scan and deploy pipeline
-  build-scan-deploy:
+  # STAGE 1: Pull code and prepare environment
+  pull:
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
     permissions:
-      contents: write
-      packages: write
-      security-events: write
+      contents: read
+    outputs:
+      sha: ${{ github.sha }}
+      image_name_lower: ${{ steps.lowercase.outputs.image_name_lower }}
     
     steps:
-    # Pull code
     - name: Checkout code
       uses: actions/checkout@v4
     
-    # Build Docker image
+    - name: Set lowercase image name
+      id: lowercase
+      run: |
+        echo "image_name_lower=$(echo ${{ env.IMAGE_NAME }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
+  # STAGE 2: Build and push Docker image
+  build:
+    needs: pull
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
     
@@ -41,43 +57,57 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
     
-    - name: Set lowercase image name
-      run: |
-        echo "IMAGE_NAME_LOWER=$(echo ${{ env.IMAGE_NAME }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
-    
     - name: Build Docker image
       uses: docker/build-push-action@v5
       with:
         context: .
         push: true
-        tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:dev-${{ github.sha }}
+        tags: ${{ env.REGISTRY }}/${{ needs.pull.outputs.image_name_lower }}:dev-${{ needs.pull.outputs.sha }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
+
+  # STAGE 3: Security scan with Trivy
+  scan:
+    needs: [pull, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     
-    # Trivy security scan
+    steps:
     - name: Run Trivy container scan
       uses: aquasecurity/trivy-action@master
       with:
-        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:dev-${{ github.sha }}
+        image-ref: ${{ env.REGISTRY }}/${{ needs.pull.outputs.image_name_lower }}:dev-${{ needs.pull.outputs.sha }}
         format: 'table'
         severity: 'CRITICAL'
         exit-code: '1'
         ignore-unfixed: true
+
+  # STAGE 4: Deploy to Kubernetes via ArgoCD
+  deploy:
+    needs: [pull, build, scan]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     
-    # Deploy to development
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
     - name: Update Kubernetes manifests
       run: |
         # Update StatefulSet
-        sed -i "s|image: ghcr.io/.*/.*:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:dev-${{ github.sha }}|" k8s/statefulset.yaml
+        sed -i "s|image: ghcr.io/.*/.*:.*|image: ${{ env.REGISTRY }}/${{ needs.pull.outputs.image_name_lower }}:dev-${{ needs.pull.outputs.sha }}|" k8s/statefulset.yaml
         # Update Deployment
-        sed -i "s|image: ghcr.io/.*/.*:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:dev-${{ github.sha }}|" k8s/deployment.yaml
-        echo "Updated image to: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:dev-${{ github.sha }}"
+        sed -i "s|image: ghcr.io/.*/.*:.*|image: ${{ env.REGISTRY }}/${{ needs.pull.outputs.image_name_lower }}:dev-${{ needs.pull.outputs.sha }}|" k8s/deployment.yaml
+        echo "Updated image to: ${{ env.REGISTRY }}/${{ needs.pull.outputs.image_name_lower }}:dev-${{ needs.pull.outputs.sha }}"
     
     - name: Deploy to development
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
         git add k8s/statefulset.yaml k8s/deployment.yaml
-        git commit -m "Deploy: dev-${{ github.sha }}" || exit 0
+        git commit -m "Deploy: dev-${{ needs.pull.outputs.sha }}" || exit 0
         git push https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git HEAD:${{ github.ref }}
         echo "Deployment ready for ArgoCD sync"
