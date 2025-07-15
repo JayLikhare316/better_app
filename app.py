@@ -2,6 +2,7 @@ import logging
 import os
 import sqlite3
 from contextlib import contextmanager
+import re
 
 from flask import Flask, redirect, render_template, request, url_for
 
@@ -22,6 +23,25 @@ if FLASK_ENV == "development":
     logger.info("Running in development mode")
 else:
     DB_PATH = os.getenv("DB_PATH", "/data/names.db")
+
+# Security: Input validation
+def validate_name(name):
+    """Validate name input - only allow alphanumeric, spaces, hyphens, apostrophes"""
+    if not name or not isinstance(name, str):
+        return False
+    # Allow letters, numbers, spaces, hyphens, apostrophes, and basic punctuation
+    pattern = r'^[a-zA-Z0-9\s\-\'\.]+$'
+    return bool(re.match(pattern, name.strip())) and len(name.strip()) <= 100
+
+@app.after_request
+def add_security_headers(response):
+    """Add security headers to all responses"""
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    if FLASK_ENV != "development":
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    return response
 
 
 @contextmanager
@@ -88,11 +108,11 @@ def index():
 def add_name():
     try:
         name = request.form.get("name")
-        if name and name.strip():
+        if name and name.strip() and validate_name(name):
             add_name_to_db(name.strip())
             logger.info(f"Added name: {name.strip()}")
         else:
-            logger.warning("Attempted to add empty name")
+            logger.warning("Attempted to add invalid or empty name")
     except Exception as e:
         logger.error(f"Error adding name: {e}")
     return redirect(url_for("index"))
@@ -103,9 +123,11 @@ def edit_name(name_id):
     try:
         if request.method == "POST":
             new_name = request.form.get("new_name")
-            if new_name and new_name.strip():
+            if new_name and new_name.strip() and validate_name(new_name):
                 update_name_in_db(name_id, new_name.strip())
                 logger.info(f"Updated name ID {name_id} to: {new_name.strip()}")
+            else:
+                logger.warning(f"Attempted to update name ID {name_id} with invalid input")
             return redirect(url_for("index"))
 
         with get_db() as conn:

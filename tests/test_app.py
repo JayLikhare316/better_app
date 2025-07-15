@@ -8,7 +8,10 @@ import pytest
 def client():
     # Set test environment variables before importing app
     os.environ["FLASK_ENV"] = "development"
-    os.environ["DB_PATH"] = tempfile.mktemp()  # Use a temp file path
+    
+    # Use secure temporary file creation
+    db_fd, db_path = tempfile.mkstemp()
+    os.environ["DB_PATH"] = db_path
 
     # Import app after setting environment
     from app import app, init_db
@@ -20,10 +23,10 @@ def client():
             init_db()
         yield client
 
-    # Cleanup - remove test database if it exists
-    test_db = os.environ.get("DB_PATH")
-    if test_db and os.path.exists(test_db):
-        os.unlink(test_db)
+    # Cleanup - close and remove test database
+    os.close(db_fd)
+    if os.path.exists(db_path):
+        os.unlink(db_path)
 
 
 def test_index(client):
@@ -101,3 +104,34 @@ def test_database_persistence(client):
     # Check all names appear
     rv = client.get("/")
     assert rv.status_code == 200
+
+
+def test_input_validation(client):
+    """Test input validation for security"""
+    # Test valid names
+    rv = client.post("/add", data={"name": "Valid Name"})
+    assert rv.status_code == 302
+    
+    rv = client.post("/add", data={"name": "John O'Connor"})
+    assert rv.status_code == 302
+    
+    rv = client.post("/add", data={"name": "Mary-Jane"})
+    assert rv.status_code == 302
+    
+    # Test invalid names (should be rejected silently)
+    rv = client.post("/add", data={"name": "<script>alert('xss')</script>"})
+    assert rv.status_code == 302
+    
+    rv = client.post("/add", data={"name": "'; DROP TABLE names; --"})
+    assert rv.status_code == 302
+
+
+def test_security_headers(client):
+    """Test that security headers are present"""
+    rv = client.get("/")
+    assert rv.status_code == 200
+    assert 'X-Content-Type-Options' in rv.headers
+    assert 'X-Frame-Options' in rv.headers
+    assert 'X-XSS-Protection' in rv.headers
+    assert rv.headers['X-Content-Type-Options'] == 'nosniff'
+    assert rv.headers['X-Frame-Options'] == 'DENY'

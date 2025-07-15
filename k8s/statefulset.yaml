@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
       - name: better-app
-        image: better-app:latest
+        image: ghcr.io/better-app/better-app:dev-latest
         ports:
         - containerPort: 5000
           name: http
