@@ -21,13 +21,15 @@ RUN pip install --no-cache-dir --upgrade pip setuptools==78.1.1 wheel && \
 # Copy application code
 COPY . .
 
-# Create data directory for database
-RUN mkdir -p /data
-
 # Create non-root user for security
-RUN adduser --disabled-password --gecos '' appuser && \
+RUN adduser --disabled-password --gecos '' appuser
+
+# Create data directory for database with proper permissions
+RUN mkdir -p /data && \
     chown -R appuser:appuser /app && \
-    chown -R appuser:appuser /data
+    chown -R appuser:appuser /data && \
+    chmod 755 /data
+
 USER appuser
 
 # Expose port

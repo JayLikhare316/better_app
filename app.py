@@ -59,24 +59,22 @@ def get_db():
 
 def init_db():
     """Initialize database with robust checks for path and permissions"""
-    db_dir = os.path.dirname(DB_PATH)
+    db_dir = os.path.dirname(DB_PATH) or "."
+    
+    # Create directory if it doesn't exist
+    try:
+        os.makedirs(db_dir, exist_ok=True)
+        logger.info(f"Database directory '{db_dir}' ready")
+    except OSError as e:
+        logger.error(f"Cannot create database directory '{db_dir}': {e}")
+        raise
 
-    # Ensure the parent directory for the database file exists.
-    if db_dir:
-        try:
-            os.makedirs(db_dir, exist_ok=True)
-            logger.info(f"Database directory '{db_dir}' exists or was created.")
-        except OSError as e:
-            logger.error(f"Fatal: Could not create database directory at '{db_dir}': {e}")
-            raise
+    # Check permissions
+    if not os.access(db_dir, os.W_OK):
+        logger.error(f"No write permissions for directory '{db_dir}'")
+        raise PermissionError(f"No write permissions for {db_dir}")
 
-    # Check for write permissions before attempting to connect.
-    check_dir = db_dir if db_dir else "."
-    if not os.access(check_dir, os.W_OK):
-        logger.error(f"Fatal: No write permissions for directory '{check_dir}'")
-        raise PermissionError(f"No write permissions for {check_dir}")
-
-    # Proceed with database connection and table creation.
+    # Initialize database
     try:
         with get_db() as conn:
             conn.execute(
@@ -88,9 +86,9 @@ def init_db():
             """
             )
             conn.commit()
-            logger.info("Database initialized successfully.")
+            logger.info(f"Database initialized at {DB_PATH}")
     except sqlite3.Error as e:
-        logger.error(f"Fatal: Failed to initialize database at '{DB_PATH}': {e}")
+        logger.error(f"Database initialization failed: {e}")
         raise
 
 
