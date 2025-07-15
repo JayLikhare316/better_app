@@ -2,15 +2,56 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ master, develop ]
+    branches: [ main, develop ]
   pull_request:
-    branches: [ master ]
+    branches: [ main ]
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  PYTHON_VERSION: '3.11'
 
 jobs:
+  # Lint and code quality checks
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Install linting dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install flake8 black isort bandit safety
+    
+    - name: Run Black formatter check
+      run: black --check --diff .
+    
+    - name: Run isort import sorting check
+      run: isort --check-only --diff .
+    
+    - name: Run Flake8 linting
+      run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+    
+    - name: Run Bandit security linting
+      run: bandit -r . -f json -o bandit-report.json || true
+    
+    - name: Check for known security vulnerabilities
+      run: safety check --json --output safety-report.json || true
+
+  # Unit and integration tests
   test:
     runs-on: ubuntu-latest
     steps:
@@ -19,29 +60,80 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.11'
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
     
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pytest flask-testing
+        pip install pytest pytest-cov flask-testing coverage
     
-    - name: Run tests
+    - name: Run tests with coverage
       run: |
-        python -m pytest tests/ -v || echo "No tests found"
+        coverage run -m pytest tests/ -v --tb=short
+        coverage report --show-missing
+        coverage xml
+    
+    - name: Upload coverage results
+      uses: actions/upload-artifact@v3
+      with:
+        name: coverage-report
+        path: coverage.xml
 
+  # Security scanning
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Run Trivy filesystem scan
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-fs-results.sarif'
+        severity: 'CRITICAL,HIGH,MEDIUM'
+        
+    - name: Upload filesystem scan results
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-fs-results.sarif'
+        
+    - name: Run Trivy config scan
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'config'
+        scan-ref: '.'
+        format: 'table'
+        severity: 'HIGH,CRITICAL'
+
+  # Build and push Docker image for development
   build-and-push:
-    needs: test
+    needs: [lint, test, security-scan]
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
     permissions:
       contents: read
       packages: write
+      security-events: write
     
     steps:
     - name: Checkout
       uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
     
     - name: Log in to Container Registry
       uses: docker/login-action@v3
@@ -57,25 +149,89 @@ jobs:
         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
         tags: |
           type=ref,event=branch
-          type=ref,event=pr
-          type=sha,prefix={{branch}}-
-          type=raw,value=latest,enable={{is_default_branch}}
+          type=sha,prefix=dev-
+          type=raw,value=dev-latest,enable={{is_default_branch}}
+        labels: |
+          org.opencontainers.image.title=Better App
+          org.opencontainers.image.description=Flask web application for managing names (Development)
+          org.opencontainers.image.vendor=Better App Team
     
     - name: Build and push Docker image
+      id: build
       uses: docker/build-push-action@v5
       with:
         context: .
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        build-args: |
+          BUILDKIT_INLINE_CACHE=1
     
-    - name: Update Kustomization
-      if: github.ref == 'refs/heads/main'
+    - name: Run Trivy container scan
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+        format: 'sarif'
+        output: 'trivy-container-results.sarif'
+        severity: 'CRITICAL,HIGH,MEDIUM'
+        
+    - name: Upload container scan results
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-container-results.sarif'
+        
+    - name: Fail on critical vulnerabilities
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+        format: 'table'
+        exit-code: '1'
+        severity: 'CRITICAL'
+    
+    - name: Clean up local Docker images
+      if: always()
       run: |
-        cd k8s/overlays/production
-        sed -i "s|newTag:.*|newTag: ${{ github.sha }}|" kustomization.yaml
+        docker buildx prune -f
+        docker system df
+
+  # Deploy to development environment
+  deploy-dev:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    environment: development
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    
+    - name: Update Kubernetes manifests
+      run: |
+        # Update statefulset with new image tag
+        sed -i "s|image: better-app:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev-${{ github.sha }}|" k8s/statefulset.yaml
+        
+        # Show the updated statefulset
+        echo "Updated statefulset.yaml:"
+        cat k8s/statefulset.yaml | grep -A 2 -B 2 "image:"
+    
+    - name: Validate Kubernetes manifests
+      run: |
+        # Install kubeval for validation
+        curl -L https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64.tar.gz | tar xz
+        sudo mv kubeval /usr/local/bin
+        kubeval k8s/*.yaml
+    
+    - name: Apply to development cluster (ArgoCD)
+      run: |
+        echo "Kubernetes manifests validated and ready for ArgoCD deployment"
+        echo "ArgoCD will automatically sync the changes to the development cluster"
+        
+        # If you want to commit the changes back to the repo for ArgoCD to pick up:
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-        git add kustomization.yaml
-        git commit -m "Update image tag to ${{ github.sha }}" || exit 0
+        git add k8s/statefulset.yaml
+        git commit -m "Update dev statefulset image: dev-${{ github.sha }}" || exit 0
         git push

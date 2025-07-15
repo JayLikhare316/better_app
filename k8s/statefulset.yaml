@@ -1,5 +1,5 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: better-app-dev
   namespace: better-app-dev
@@ -7,12 +7,8 @@ metadata:
     app: better-app
     environment: dev
 spec:
+  serviceName: better-app-dev-headless
   replicas: 1
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 1
-      maxSurge: 1
   selector:
     matchLabels:
       app: better-app
@@ -37,7 +33,10 @@ spec:
         - name: LOG_LEVEL
           value: "DEBUG"
         - name: DB_PATH
-          value: "/tmp/names.db"
+          value: "/data/names.db"
+        volumeMounts:
+        - name: database-storage
+          mountPath: /data
         livenessProbe:
           httpGet:
             path: /health
@@ -57,3 +56,11 @@ spec:
           limits:
             memory: "128Mi"
             cpu: "100m"
+  volumeClaimTemplates:
+  - metadata:
+      name: database-storage
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 1Gi
