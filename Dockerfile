@@ -1,19 +1,22 @@
-# Use Python slim image for smaller size
-FROM python:3.11-slim
+# Use Python slim-bookworm image for smaller size and security
+FROM python:3.11-slim-bookworm
 
 # Set working directory
 WORKDIR /app
 
 # Install system dependencies including curl for health checks
+# Pin specific versions and minimize installed packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
+    curl=7.88.1-10+deb12u5 \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
 COPY requirements.txt .
 
-# Install dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install dependencies with security upgrades
+RUN pip install --no-cache-dir --upgrade pip setuptools==78.1.1 wheel && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY . .

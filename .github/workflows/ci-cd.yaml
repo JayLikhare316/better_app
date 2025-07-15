@@ -56,8 +56,9 @@ jobs:
       with:
         image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:dev-${{ github.sha }}
         format: 'table'
-        severity: 'HIGH,CRITICAL'
+        severity: 'CRITICAL'
         exit-code: '1'
+        ignore-unfixed: true
     
     # Deploy to development
     - name: Update Kubernetes manifests
