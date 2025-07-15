@@ -18,7 +18,7 @@ spec:
         fsGroup: 1000
       containers:
       - name: better-app
-        image: ghcr.io/jaylikhare316/better_app:dev-f263d3ae3c7e9080c665dcab7473606b5726f2a0
+        image: ghcr.io/jaylikhare316/better_app:dev-e2584b08366c71e0599b1e171f5b817b098581f5
         imagePullPolicy: Always
         ports:
         - containerPort: 5000
