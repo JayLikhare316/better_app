@@ -1,0 +1,31 @@
+name: Test Pipeline
+
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+
+jobs:
+  test-basic:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Test basic functionality
+      run: |
+        echo "✅ GitHub Actions is working!"
+        echo "Repository: ${{ github.repository }}"
+        echo "Branch: ${{ github.ref }}"
+        echo "Event: ${{ github.event_name }}"
+        echo "Actor: ${{ github.actor }}"
+        
+    - name: List files
+      run: |
+        echo "📁 Repository contents:"
+        ls -la
+        
+    - name: Check Python
+      run: |
+        echo "🐍 Python version:"
+        python3 --version
