@@ -1,8 +1,9 @@
-from flask import Flask, render_template, request, redirect, url_for
+import logging
 import os
 import sqlite3
 from contextlib import contextmanager
-import logging
+
+from flask import Flask, redirect, render_template, request, url_for
 
 app = Flask(__name__)
 
@@ -34,7 +35,9 @@ def get_db():
 
 def init_db():
     """Initialize database with names table"""
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    db_dir = os.path.dirname(DB_PATH)
+    if db_dir:  # Only create directory if DB_PATH has a directory component
+        os.makedirs(db_dir, exist_ok=True)
     with get_db() as conn:
         conn.execute(
             """
@@ -83,32 +86,48 @@ def index():
 
 @app.route("/add", methods=["POST"])
 def add_name():
-    name = request.form.get("name")
-    if name and name.strip():
-        add_name_to_db(name.strip())
+    try:
+        name = request.form.get("name")
+        if name and name.strip():
+            add_name_to_db(name.strip())
+            logger.info(f"Added name: {name.strip()}")
+        else:
+            logger.warning("Attempted to add empty name")
+    except Exception as e:
+        logger.error(f"Error adding name: {e}")
     return redirect(url_for("index"))
 
 
 @app.route("/edit/<int:name_id>", methods=["GET", "POST"])
 def edit_name(name_id):
-    if request.method == "POST":
-        new_name = request.form.get("new_name")
-        if new_name and new_name.strip():
-            update_name_in_db(name_id, new_name.strip())
-        return redirect(url_for("index"))
-
-    with get_db() as conn:
-        cursor = conn.execute("SELECT name FROM names WHERE id = ?", (name_id,))
-        result = cursor.fetchone()
-        if not result:
+    try:
+        if request.method == "POST":
+            new_name = request.form.get("new_name")
+            if new_name and new_name.strip():
+                update_name_in_db(name_id, new_name.strip())
+                logger.info(f"Updated name ID {name_id} to: {new_name.strip()}")
             return redirect(url_for("index"))
 
-    return render_template("edit.html", name=result[0], name_id=name_id)
+        with get_db() as conn:
+            cursor = conn.execute("SELECT name FROM names WHERE id = ?", (name_id,))
+            result = cursor.fetchone()
+            if not result:
+                logger.warning(f"Attempted to edit non-existent name ID: {name_id}")
+                return redirect(url_for("index"))
+
+        return render_template("edit.html", name=result[0], name_id=name_id)
+    except Exception as e:
+        logger.error(f"Error editing name ID {name_id}: {e}")
+        return redirect(url_for("index"))
 
 
 @app.route("/delete/<int:name_id>")
 def delete_name(name_id):
-    delete_name_from_db(name_id)
+    try:
+        delete_name_from_db(name_id)
+        logger.info(f"Deleted name ID: {name_id}")
+    except Exception as e:
+        logger.error(f"Error deleting name ID {name_id}: {e}")
     return redirect(url_for("index"))
 
 
