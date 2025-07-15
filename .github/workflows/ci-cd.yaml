@@ -37,12 +37,16 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
     
+    - name: Set lowercase image name
+      run: |
+        echo "IMAGE_NAME_LOWER=$(echo ${{ env.IMAGE_NAME }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+    
     - name: Build Docker image
       uses: docker/build-push-action@v5
       with:
         context: .
         push: true
-        tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev-${{ github.sha }}
+        tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:dev-${{ github.sha }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
     
@@ -50,7 +54,7 @@ jobs:
     - name: Run Trivy container scan
       uses: aquasecurity/trivy-action@master
       with:
-        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev-${{ github.sha }}
+        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:dev-${{ github.sha }}
         format: 'table'
         severity: 'HIGH,CRITICAL'
         exit-code: '1'
@@ -59,10 +63,10 @@ jobs:
     - name: Update Kubernetes manifests
       run: |
         # Update StatefulSet
-        sed -i "s|image: ghcr.io/.*/.*:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev-${{ github.sha }}|" k8s/statefulset.yaml
+        sed -i "s|image: ghcr.io/.*/.*:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:dev-${{ github.sha }}|" k8s/statefulset.yaml
         # Update Deployment
-        sed -i "s|image: ghcr.io/.*/.*:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev-${{ github.sha }}|" k8s/deployment.yaml
-        echo "Updated image to: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev-${{ github.sha }}"
+        sed -i "s|image: ghcr.io/.*/.*:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:dev-${{ github.sha }}|" k8s/deployment.yaml
+        echo "Updated image to: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:dev-${{ github.sha }}"
     
     - name: Deploy to development
       run: |
