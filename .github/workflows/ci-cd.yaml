@@ -11,13 +11,17 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
+permissions:
+  contents: write
+  packages: write
+  
 jobs:
   # Simple build, scan and deploy pipeline
   build-scan-deploy:
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
     permissions:
-      contents: read
+      contents: write
       packages: write
       security-events: write
     
@@ -75,5 +79,5 @@ jobs:
         git config --local user.name "GitHub Action"
         git add k8s/statefulset.yaml k8s/deployment.yaml
         git commit -m "Deploy: dev-${{ github.sha }}" || exit 0
-        git push
+        git push https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git HEAD:${{ github.ref }}
         echo "Deployment ready for ArgoCD sync"
