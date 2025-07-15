@@ -8,7 +8,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/apple/better_app  # Updated with actual repo URL
+    repoURL: https://github.com/JayLikhare316/better_app.git
     targetRevision: HEAD
     path: k8s
   destination:
