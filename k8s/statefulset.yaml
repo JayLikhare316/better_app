@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: better-app
-        image: ghcr.io/jaylikhare316/better_app:dev-24fe41412964130d82ddc80f488a4efe31bfea24
+        image: ghcr.io/jaylikhare316/better_app:dev-7608507d880fb8eae9eb64172aaedf921dc167bc
         imagePullPolicy: Always
         ports:
         - containerPort: 5000
